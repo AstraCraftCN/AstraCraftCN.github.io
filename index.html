@@ -1,0 +1,863 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>AstraCraft — Modular Warfare Player Hub</title>
+<meta name="description" content="A player-run hub for Modular Warfare: camp, lobby, tools and resources." />
+<style>
+  @font-face {
+    font-family: 'Agibot';
+    src: url('assets/font/AgibotDisplay-Regular.ttf') format('truetype');
+    font-weight: 400; font-display: swap;
+  }
+  @font-face {
+    font-family: 'Agibot';
+    src: url('assets/font/AgibotDisplay-Bold.ttf') format('truetype');
+    font-weight: 700; font-display: swap;
+  }
+  @font-face {
+    font-family: 'Agibot';
+    src: url('assets/font/AgibotDisplay-Light.ttf') format('truetype');
+    font-weight: 300; font-display: swap;
+  }
+
+  :root {
+    --ink: #05060A;
+    --ink-2: #0A0C12;
+    --paper: #F2F3F5;
+    --green: #2FA76A;
+    --mint: #6FE8A8;
+    --line: rgba(255, 255, 255, .08);
+    --ease: cubic-bezier(.16, 1, .3, 1);
+    --ease-io: cubic-bezier(.65, 0, .35, 1);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--ink-2);
+    color: var(--paper);
+    font-family: 'Agibot', -apple-system, "Segoe UI", sans-serif;
+    font-weight: 400;
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+  }
+  ::selection { background: var(--green); color: #04120A; }
+  body { cursor: url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='28' height='28' viewBox='0 0 28 28'%3E%3Ccircle cx='14' cy='14' r='7' fill='none' stroke='%236FE8A8' stroke-width='1.2' opacity='.9'/%3E%3Cpath d='M14 2v6M14 20v6M2 14h6M20 14h6' stroke='%236FE8A8' stroke-width='1.2' stroke-linecap='round' opacity='.9'/%3E%3Ccircle cx='14' cy='14' r='1.4' fill='%236FE8A8'/%3E%3C/svg%3E\") 14 14, auto; }
+  a, button, .tool, .enter { cursor: url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='28' height='28' viewBox='0 0 28 28'%3E%3Ccircle cx='14' cy='14' r='7' fill='none' stroke='%236FE8A8' stroke-width='1.2' opacity='.9'/%3E%3Cpath d='M14 2v6M14 20v6M2 14h6M20 14h6' stroke='%236FE8A8' stroke-width='1.2' stroke-linecap='round' opacity='.9'/%3E%3Ccircle cx='14' cy='14' r='1.4' fill='%236FE8A8'/%3E%3C/svg%3E\") 14 14, auto; }
+  a { color: inherit; text-decoration: none; }
+
+  /* ============ 预加载 ============ */
+  #pl {
+    position: fixed; inset: 0; z-index: 900; background: var(--ink);
+    display: grid; place-items: center;
+    transition: opacity .9s var(--ease), visibility .9s;
+  }
+  #pl.done { opacity: 0; visibility: hidden; }
+  .pl-mark {
+    width: clamp(150px, 22vw, 260px);
+    filter: brightness(0) invert(1);
+    animation: plPulse 2s var(--ease-io) infinite;
+  }
+  @keyframes plPulse { 0%,100% { opacity: .3 } 50% { opacity: .95 } }
+
+  /* ============ 首屏 ============ */
+  .stage { position: relative; height: 100vh; z-index: 5; }
+  .stage .pin { transition: none; }
+  .pin { position: absolute; inset: 0; overflow: hidden; }
+
+  .reel { position: fixed; inset: 0; overflow: hidden; z-index: 0; }
+  .reel video {
+    position: absolute; left: 50%; top: 50%;
+    /* 关键：先缩到 1/4 再放大，模糊只需处理 1/16 的像素 */
+    width: 25%; height: 25%;
+    transform: translate(-50%, -50%) scale(4);
+    object-fit: cover;
+    opacity: 0;
+    transition: opacity 1.6s var(--ease);
+    filter: blur(8px) saturate(1.25) brightness(.82);
+    will-change: opacity;
+  }
+  .reel video.on { opacity: 1; }
+  /* WebGL 真实水面 */
+  .water {
+    position: fixed; inset: 0; z-index: 1;
+    width: 100%; height: 100%;
+    display: block;
+    opacity: 0;
+    transition: opacity 1.2s ease-out;
+    pointer-events: none;
+  }
+  .water.on { opacity: 1; }
+
+  .veil {
+    position: fixed; inset: 0; z-index: 2;
+    background:
+      radial-gradient(72% 62% at 50% 46%, rgba(4,5,8,.30) 10%, rgba(4,5,8,.72) 78%),
+      linear-gradient(180deg, rgba(4,5,8,.55) 0%, rgba(4,5,8,.18) 30%, transparent 54%, rgba(4,5,8,.94) 100%);
+  }
+  .grain {
+    position: fixed; inset: 0; z-index: 3; pointer-events: none; opacity: .16;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='.5'/%3E%3C/svg%3E");
+    mix-blend-mode: overlay;
+  }
+
+  .hero {
+    position: absolute; inset: 0; z-index: 5;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: clamp(30px, 4.4vh, 52px);
+    will-change: transform, opacity, filter;
+    perspective: 1400px;
+    perspective-origin: 50% 50%;
+  }
+  .hero-inner {
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: clamp(30px, 4.4vh, 52px);
+    transform-style: preserve-3d;
+    will-change: transform;
+  }
+
+
+  /* ============ 文字驱动段 ============ */
+  .statement { position: relative; height: 300vh; z-index: 5; }
+  .stmt-sticky {
+    position: sticky; top: 0; height: 100vh;
+    background: radial-gradient(58% 50% at 50% 50%, rgba(3,9,7,.82), rgba(3,8,7,.5) 62%, rgba(3,8,7,.2) 100%);
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: clamp(10px, 1.6vh, 20px);
+    text-align: center; padding: 0 24px;
+  }
+  .stmt-line {
+    font-size: clamp(26px, 5vw, 74px);
+    font-weight: 700; letter-spacing: .03em; line-height: 1.16;
+    color: rgba(242, 243, 245, .1);
+    transition: color .45s var(--ease), transform .6s var(--ease), letter-spacing .8s var(--ease);
+    will-change: color, transform;
+  }
+  .stmt-line.lit { color: #F2F3F5; }
+  .stmt-line.lit.mid { color: var(--mint); }
+
+
+  /* 水面涟漪 */
+  .ripple {
+    position: fixed; z-index: 7; pointer-events: none;
+    border-radius: 50%;
+    border: 1.5px solid rgba(150,235,255,.5);
+    transform: translate(-50%, -50%) scale(.1);
+    opacity: .85;
+    animation: rip 1.35s cubic-bezier(.15,.7,.25,1) forwards;
+  }
+  @keyframes rip {
+    0% { transform: translate(-50%, -50%) scale(.1); opacity: .9; }
+    100% { transform: translate(-50%, -50%) scale(1); opacity: 0; }
+  }
+  .ripple.mini {
+    border-color: rgba(150,235,255,.28);
+    animation-duration: .9s;
+  }
+
+  /* 整块 logo：亮闪 + 淡出 */
+  .hero-logo {
+    width: clamp(250px, 46vw, 660px);
+    filter: brightness(0) invert(1) drop-shadow(0 8px 30px rgba(0,0,0,.95)) drop-shadow(0 2px 8px rgba(0,0,0,.8));
+    opacity: 0;
+    animation: focusIn 1.6s var(--ease) .15s forwards;
+    will-change: filter, opacity, transform;
+  }
+  @keyframes focusIn {
+    0% { opacity: 0; filter: brightness(0) invert(1) blur(16px); }
+    100% { opacity: 1; filter: brightness(0) invert(1) blur(0); }
+  }
+  .hero-logo.flash {
+    animation: none;
+    opacity: 1;
+    filter: brightness(0) invert(1) brightness(2.6) drop-shadow(0 0 60px rgba(255,255,255,.95));
+    transition: filter .16s ease-out;
+  }
+  .hero-logo.gone {
+    transition: opacity .38s ease-out .12s;
+    opacity: 0;
+  }
+  .hero-sub {
+    font-size: 15px; letter-spacing: .5em; text-transform: uppercase;
+    color: rgba(255,255,255,.72); text-indent: .5em;
+    text-shadow: 0 2px 16px rgba(0,0,0,.95);
+    opacity: 0;
+    animation: fadeUp 1.2s var(--ease) .9s forwards;
+  }
+  @keyframes fadeUp { to { opacity: 1; } }
+
+  .cue {
+    position: absolute; bottom: 42px; left: 50%; z-index: 5;
+    width: 1px; height: 46px;
+    background: linear-gradient(180deg, rgba(255,255,255,.7), transparent);
+    animation: cue 2.4s var(--ease-io) infinite;
+  }
+  @keyframes cue {
+    0%,100% { opacity: .2; transform: translateX(-50%) scaleY(.5); transform-origin: top; }
+    50% { opacity: 1; transform: translateX(-50%) scaleY(1); transform-origin: top; }
+  }
+
+  /* ============ 营地层 ============ */
+  .camp {
+    position: absolute; inset: 0; z-index: 6;
+    display: grid; place-items: center; text-align: center;
+    opacity: 0; pointer-events: none;
+
+    background:
+      linear-gradient(rgba(4,11,8,.12), rgba(4,11,8,.12)),
+      radial-gradient(54% 46% at 50% 50%, rgba(3,9,6,.82) 0%, rgba(4,10,8,.5) 58%, rgba(4,10,8,.16) 100%);
+  }
+  .camp-in {
+    will-change: transform, filter;
+    transform: translateY(26px) scale(.94);
+    filter: blur(10px);
+  }
+  .camp-en {
+    font-size: 15px; letter-spacing: .5em; text-transform: uppercase;
+    color: var(--mint); margin-bottom: 26px; font-weight: 700; text-indent: .5em;
+  }
+  .camp-name {
+    color: #fff;
+    font-size: clamp(44px, 9.4vw, 124px); font-weight: 700;
+    letter-spacing: .01em; line-height: 1; text-transform: uppercase;
+    text-shadow: 0 4px 30px rgba(0,0,0,.95), 0 2px 8px rgba(0,0,0,.9);
+  }
+  .camp-name span { color: var(--mint); }
+  .enter {
+    display: inline-flex; align-items: center; gap: 14px;
+    margin-top: 54px; padding: 26px 58px; border-radius: 999px;
+    border: 1.5px solid rgba(111,232,168,.7);
+    background: rgba(47,167,106,.24);
+    font-size: 44px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase;
+    color: var(--mint); text-indent: .14em;
+    backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+    transition: background .45s var(--ease), border-color .45s, transform .45s var(--ease), letter-spacing .45s;
+  }
+  .enter:hover {
+    background: rgba(47,167,106,.26); border-color: var(--mint);
+    transform: translateY(-3px); letter-spacing: .32em;
+  }
+  .enter i {
+    display: block; width: 0; height: 1.5px; background: var(--mint);
+    transition: width .45s var(--ease);
+  }
+  .enter:hover i { width: 22px; }
+
+  /* ============ 工具区（深色） ============ */
+  .darkzone {
+    position: relative; z-index: 5;
+    background: var(--ink-2);
+    /* 顶端一点点绿光，不要死黑 */
+    background-image: radial-gradient(72% 320px at 50% 0%, rgba(47,167,106,.07), transparent 70%);
+  }
+  .tools {
+    position: relative;
+    padding: clamp(96px, 16vh, 190px) clamp(20px, 5vw, 60px) clamp(76px, 12vh, 140px);
+    border-top: 1px solid var(--line);
+  }
+  /* 顶部一层极淡的光，避免整块死黑 */
+  .tools::before {
+    content: ''; position: absolute; inset: 0 0 auto 0; height: 340px;
+    background: radial-gradient(60% 100% at 50% 0%, rgba(47,167,106,.1), transparent 72%);
+    pointer-events: none;
+  }
+  .tools-in { position: relative; max-width: 1040px; margin: 0 auto; }
+
+  .grid {
+    display: grid; gap: clamp(12px, 1.5vw, 18px);
+    grid-template-columns: repeat(3, 1fr);
+  }
+  .tool {
+    position: relative; overflow: hidden;
+    aspect-ratio: 1 / .82;
+    border-radius: 20px;
+    border: 1px solid rgba(255, 255, 255, .07);
+    background: transparent;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 18px;
+    transition:
+      transform .55s var(--ease),
+      border-color .5s var(--ease),
+      box-shadow .5s var(--ease);
+  }
+  /* 第 1 层（最底）：水 */
+  .tool-water {
+    position: absolute; inset: -12%;
+    will-change: transform;
+    background:
+      radial-gradient(60% 50% at 28% 22%, rgba(120,215,255,.55), transparent 62%),
+      radial-gradient(55% 48% at 74% 78%, rgba(50,200,150,.5), transparent 64%),
+      radial-gradient(70% 60% at 50% 50%, rgba(20,90,110,.7), rgba(4,22,26,.95) 78%);
+    filter: blur(3px) saturate(1.3);
+    animation: waterDrift 8s ease-in-out infinite alternate;
+    opacity: 0;
+    transition: opacity .55s var(--ease);
+  }
+  .tool:nth-child(2n) .tool-water { animation-duration: 10s; animation-direction: alternate-reverse; }
+  .tool:nth-child(3n) .tool-water { filter: blur(4px) saturate(1.15) hue-rotate(-12deg); }
+  @keyframes waterDrift {
+    0%   { transform: translate(-5%, -3%) scale(1.08) rotate(-1.2deg); }
+    100% { transform: translate(5%, 4%) scale(1.14) rotate(1.2deg); }
+  }
+  /* 第 2 层（中间）：长虹/压花玻璃 */
+  .tool-glass {
+    position: absolute; inset: 0;
+    background:
+      repeating-linear-gradient(90deg,
+        rgba(255,255,255,.13) 0 1.5px,
+        rgba(255,255,255,0) 1.5px 11px),
+      linear-gradient(165deg, rgba(255,255,255,.14), rgba(255,255,255,.02) 45%, rgba(255,255,255,.08));
+    /* 只留很小的模糊，主力靠底下那层水色渐变撑；backdrop-filter 太贵 */
+    backdrop-filter: blur(3px) saturate(1.3);
+    -webkit-backdrop-filter: blur(3px) saturate(1.3);
+    box-shadow:
+      inset 0 1px 0 rgba(255,255,255,.3),
+      inset 0 -1px 0 rgba(255,255,255,.12);
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity .55s var(--ease);
+  }
+  /* 第 3 层（最上）：按钮内容 */
+  .tool-body {
+    position: relative; z-index: 3;
+    display: flex; flex-direction: column;
+    align-items: center; gap: 18px;
+  }
+  .tool:hover .tool-water,
+  .tool:focus-visible .tool-water,
+  .tool:hover .tool-glass,
+  .tool:focus-visible .tool-glass { opacity: 1; }
+
+  .tool:hover,
+  .tool:focus-visible {
+    transform: translateY(-4px);
+    border-color: rgba(111,232,168,.5);
+    box-shadow:
+      inset 0 0 0 1px rgba(111,232,168,.18),
+      inset 0 0 40px rgba(47,167,106,.14),
+      0 0 34px rgba(47,167,106,.16);
+  }
+  .tool-ico {
+    position: relative; z-index: 3;
+    width: clamp(34px, 4vw, 50px); height: clamp(34px, 4vw, 50px);
+    color: rgba(242,243,245,.62);
+    transition: color .5s;
+  }
+  .tool:hover .tool-ico,
+  .tool:focus-visible .tool-ico { color: var(--mint); }
+  /* 科幻展开：整块背景被"点亮"，从指针处长出一个发光面 */
+  .tool::after {
+    content: ''; position: absolute; inset: 0; z-index: 0;
+    background:
+      radial-gradient(220px 220px at var(--mx,50%) var(--my,50%), rgba(47,167,106,.34), rgba(47,167,106,.08) 45%, transparent 72%);
+    opacity: 0;
+    transition: opacity .55s var(--ease);
+  }
+  .tool:hover::after { opacity: 1; }
+  .tool-ico svg { width: 100%; height: 100%; fill: none; stroke: currentColor; stroke-width: 1.35; stroke-linecap: round; stroke-linejoin: round; }
+  .tool-name {
+    position: relative; z-index: 3;
+    font-size: clamp(20px, 2.5vw, 30px); font-weight: 700;
+    letter-spacing: .2em; text-transform: uppercase; color: rgba(242,243,245,.86);
+    text-indent: .2em;
+    transition: color .5s;
+  }
+  .tool-en {
+    position: relative; z-index: 3;
+    font-size: 12.5px; letter-spacing: .3em; text-transform: uppercase;
+    color: rgba(242,243,245,.5); margin-top: -12px; text-indent: .3em;
+  }
+  .tool:hover .tool-name,
+  .tool:focus-visible .tool-name { color: #fff; }
+  .tool.accent .tool-ico { color: rgba(111,232,168,.9); }
+
+  /* ============ 页脚 ============ */
+  .foot {
+    position: relative; z-index: 5;
+    background: var(--ink-2);
+    padding: 0 clamp(20px, 5vw, 60px) 52px;
+    max-width: 1040px; margin: 0 auto;
+    display: flex; justify-content: space-between; align-items: center;
+    gap: 18px; flex-wrap: wrap;
+    font-size: 13px; letter-spacing: .2em; text-transform: uppercase;
+    color: rgba(242,243,245,.42);
+  }
+  .foot-mark { width: 92px; filter: brightness(0) invert(1) opacity(.34); }
+
+  .rv { opacity: 0; transform: translateY(26px); transition: opacity .95s var(--ease), transform .95s var(--ease); }
+  .rv.in { opacity: 1; transform: none; }
+
+  @media (max-width: 760px) {
+    .grid { grid-template-columns: repeat(2, 1fr); }
+    .tool { aspect-ratio: 1 / .84; }
+    .reel video { filter: blur(22px) saturate(1.2) brightness(.8); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition-duration: .01ms !important; }
+  }
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute;pointer-events:none" aria-hidden="true">
+  <filter id="waterFX" x="-8%" y="-8%" width="116%" height="116%" color-interpolation-filters="sRGB">
+    <feTurbulence id="wturb" type="fractalNoise" baseFrequency="0.006 0.014" numOctaves="2" seed="7" result="noise">
+      <animate attributeName="baseFrequency" dur="24s"
+               values="0.006 0.014; 0.011 0.020; 0.006 0.014" repeatCount="indefinite" />
+    </feTurbulence>
+    <feDisplacementMap id="wdisp" in="SourceGraphic" in2="noise" scale="16"
+                       xChannelSelector="R" yChannelSelector="G" result="waved" />
+    <feGaussianBlur in="waved" stdDeviation="2.2" />
+  </filter>
+</svg>
+<div id="pl"><img class="pl-mark" src="https://cdn.jsdelivr.net/gh/AstraCraftCN/AstraCraftCN.github.io@main/assets/img/logo.png" alt="" /></div>
+
+<div class="stage">
+  <div class="pin" style="position:absolute;inset:0;overflow:hidden">
+    <div class="reel" id="reel">
+      <video data-src="https://cdn.jsdelivr.net/gh/AstraCraftCN/AstraCraftCN.github.io@main/assets/video/v1.mp4" muted loop playsinline preload="none"></video>
+      <video data-src="https://cdn.jsdelivr.net/gh/AstraCraftCN/AstraCraftCN.github.io@main/assets/video/v2.mp4" muted loop playsinline preload="none"></video>
+      <video data-src="https://cdn.jsdelivr.net/gh/AstraCraftCN/AstraCraftCN.github.io@main/assets/video/v3.mp4" muted loop playsinline preload="none"></video>
+    </div>
+    <canvas class="water" id="water"></canvas>
+    <div class="veil"></div>
+    <div class="grain"></div>
+
+    <div class="hero" id="hero">
+      <img class="hero-logo" id="heroLogo" src="https://cdn.jsdelivr.net/gh/AstraCraftCN/AstraCraftCN.github.io@main/assets/img/logo.png" alt="AstraCraft" />
+      <div class="hero-sub">Modular Warfare · Player Hub</div>
+    </div>
+    <div class="cue" id="cue"></div>
+  </div>
+</div>
+
+
+<section class="statement" id="statement">
+  <div class="stmt-sticky" id="stmtSticky">
+    <p class="stmt-line">A player-run archive.</p>
+    <p class="stmt-line">No cheats.</p>
+    <p class="stmt-line mid">No shortcuts.</p>
+    <p class="stmt-line">Just the game, played fair.</p>
+  </div>
+</section>
+
+<div class="darkzone">
+<section class="tools">
+  <div class="tools-in">
+    <div class="grid">
+      <a class="tool accent rv" href="https://astracraftcn.github.io/czszlvwan/" target="_blank" rel="noopener">
+        <span class="tool-water"></span>
+        <span class="tool-glass"></span>
+        <span class="tool-body"><span class="tool-ico"><svg viewBox="0 0 24 24"><path d="M12 3 3 8l9 5 9-5-9-5z"/><path d="m3 12 9 5 9-5"/><path d="m3 16 9 5 9-5"/></svg></span>
+        <span class="tool-name">Camp</span>
+        <span class="tool-en">Home</span></span>
+      </a>
+      <a class="tool rv" href="https://greenplay.app.workbuddy.host/?sharecode=FRWWYNBXHN" target="_blank" rel="noopener">
+        <span class="tool-water"></span>
+        <span class="tool-glass"></span>
+        <span class="tool-body"><span class="tool-ico"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M3 9h18"/><path d="M8 14h3"/></svg></span>
+        <span class="tool-name">Lobby</span>
+        <span class="tool-en">Rooms</span></span>
+      </a>
+      <a class="tool rv" href="https://github.com/AstraCraftCN/czszlvwan-app" target="_blank" rel="noopener">
+        <span class="tool-water"></span>
+        <span class="tool-glass"></span>
+        <span class="tool-body"><span class="tool-ico"><svg viewBox="0 0 24 24"><rect x="6" y="2" width="12" height="20" rx="3"/><path d="M11 18h2"/></svg></span>
+        <span class="tool-name">App</span>
+        <span class="tool-en">Android</span></span>
+      </a>
+      <a class="tool rv" href="https://greenplay.app.workbuddy.host/charter.html?sharecode=FRWWYNBXHN" target="_blank" rel="noopener">
+        <span class="tool-water"></span>
+        <span class="tool-glass"></span>
+        <span class="tool-body"><span class="tool-ico"><svg viewBox="0 0 24 24"><path d="M6 3h9l4 4v14H6z"/><path d="M9 12h7"/><path d="M9 16h5"/></svg></span>
+        <span class="tool-name">Charter</span>
+        <span class="tool-en">Rules</span></span>
+      </a>
+      <a class="tool rv" href="https://czsz.163.com/index.html" target="_blank" rel="noopener">
+        <span class="tool-water"></span>
+        <span class="tool-glass"></span>
+        <span class="tool-body"><span class="tool-ico"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a15 15 0 0 1 0 18a15 15 0 0 1 0-18"/></svg></span>
+        <span class="tool-name">Official</span>
+        <span class="tool-en">NetEase</span></span>
+      </a>
+    </div>
+  </div>
+</section>
+
+<footer class="foot"><div class="foot-in"><span>© Green Play Camp</span>
+  <img class="foot-mark" src="https://cdn.jsdelivr.net/gh/AstraCraftCN/AstraCraftCN.github.io@main/assets/img/logo.png" alt="" />
+  <span>Fan-made · Not affiliated</span></div></footer>
+</div>
+
+<script>
+(function () {
+  const pl = document.getElementById('pl')
+  document.body.style.overflow = 'hidden'
+  let fired = false
+  function done() {
+    if (fired) return
+    fired = true
+    setTimeout(() => {
+      pl.classList.add('done')
+      document.body.style.overflow = ''
+      bootReel()
+      setTimeout(() => {
+        if (window.Water) window.Water.start()
+        const veil = document.querySelector('.veil')
+        if (veil) { veil.style.transition = 'opacity 2s ease-out'; veil.style.opacity = '.86' }
+        const videos = document.querySelectorAll('.reel video')
+        videos.forEach(v => { v.style.transition = 'filter 2s ease-out'; v.style.filter = 'blur(6px) brightness(.42) saturate(1.2)' })
+        const grain = document.querySelector('.grain')
+        if (grain) { grain.style.transition = 'opacity 1.5s'; grain.style.opacity = '.07' }
+      }, 900)
+    }, 420)
+  }
+  Promise.all([
+    document.fonts ? document.fonts.ready : Promise.resolve(),
+    new Promise(res => { const i = new Image(); i.onload = res; i.onerror = res; i.src = 'assets/img/logo.png' })
+  ]).then(done)
+  setTimeout(done, 3500)
+})();
+
+function bootReel() {
+  const vids = Array.from(document.querySelectorAll('.reel video'))
+  if (!vids.length) return
+  let idx = 0
+  function play(i) {
+    const v = vids[i]
+    if (!v.src && v.dataset.src) { v.src = v.dataset.src; v.load() }
+    const go = () => v.play().catch(() => {})
+    if (v.readyState >= 2) go()
+    else v.addEventListener('loadeddata', go, { once: true })
+    vids.forEach((x, j) => x.classList.toggle('on', j === i))
+  }
+  play(0)
+  setInterval(() => { idx = (idx + 1) % vids.length; play(idx) }, 7000)
+}
+
+
+
+
+/* 揭示 */
+
+
+
+/* 甲斗式蜂窝：装甲逐格生成 */
+(function () {
+  const layer = document.getElementById('kabutoLayer')
+  if (!layer) return
+  let cells = null
+  const maxDelayRef = { v: 0 }
+
+  function build() {
+    if (cells) return
+    const W = window.innerWidth, H = window.innerHeight
+    // 先定六边形尺寸，再按视口算出需要多少列、多少行
+    const target = W < 760 ? 96 : 140   // 每个六边形的宽度
+    const R = target / 2
+    const hexW = 2 * R
+    const hexH = Math.sqrt(3) * R
+    const hStep = 1.5 * R
+    const vStep = hexH
+    const cols = Math.ceil(W / hStep) + 2
+    const rows = Math.ceil(H / vStep) + 2
+    const cx0 = (W / hStep) / 2
+    const cy0 = (H / vStep) / 2
+
+    cells = []
+    const frag = document.createDocumentFragment()
+    for (let row = 0; row < rows; row++) {
+      for (let col = 0; col <= cols; col++) {
+        // flat-top 蜂窝：奇数列垂直错开半个高
+        const x = col * hStep
+        const y = row * vStep + (col % 2 ? vStep / 2 : 0) - hexH
+        const el = document.createElement('i')
+        el.style.left = x + 'px'
+        el.style.top = y + 'px'
+        el.style.width = hexW + 'px'
+        el.style.height = hexH + 'px'
+        const d = Math.hypot(col - cx0, (row - cy0) * 1.15)
+        el.style.animationDelay = Math.round(d * 26) + 'ms'
+        if (d * 1.6 > maxDelayRef.v) maxDelayRef.v = d * 1.6
+        frag.appendChild(el)
+        cells.push(el)
+      }
+    }
+    layer.appendChild(frag)
+  }
+
+  window.Kabuto = function () {
+    build()
+    layer.classList.remove('run')
+    layer.style.opacity = '1'
+    void layer.offsetWidth          // 只在这里回流一次
+    layer.classList.add('run')
+
+    // 全部亮完后整层收掉
+    const hold = maxDelayRef.v * 1000 + 480
+    setTimeout(() => {
+      layer.style.opacity = '0'
+      setTimeout(() => layer.classList.remove('run'), 220)
+    }, hold)
+  }
+})();
+
+
+/* 文字驱动：往下滑，一行行亮起来 */
+(function () {
+  const sec = document.getElementById('statement')
+  const wrap = document.getElementById('stmtSticky')
+  if (!sec || !wrap) return
+  const lines = Array.from(wrap.querySelectorAll('.stmt-line'))
+  let raf = null
+
+  function tick() {
+    const r = sec.getBoundingClientRect()
+    const total = sec.offsetHeight - window.innerHeight
+    const t = total > 0 ? Math.min(Math.max(-r.top / total, 0), 1) : 0
+
+    lines.forEach((el, i) => {
+      const start = (i / (lines.length + 1)) * 0.72
+      const p = Math.min(Math.max((t - start) / 0.16, 0), 1)
+      el.classList.toggle('lit', p > 0.4)
+      el.style.transform = `translateY(${(1 - p) * 20}px)`
+      el.style.letterSpacing = (0.03 + p * 0.014) + 'em'
+    })
+  }
+
+  const onScroll = () => { if (!raf) raf = requestAnimationFrame(() => { tick(); raf = null }) }
+  window.addEventListener('scroll', onScroll, { passive: true })
+  window.addEventListener('resize', onScroll)
+  tick()
+})();
+
+/* ================= WebGL 真实水面 ================= */
+window.Water = (function () {
+  const canvas = document.getElementById('water')
+  if (!canvas) return { start() {}, stop() {} }
+
+  const gl = canvas.getContext('webgl', { antialias: false, alpha: false })
+  if (!gl) return { start() {}, stop() {} }
+
+  const VS = `
+attribute vec2 aPos;
+varying vec2 vUv;
+void main() {
+  vUv = aPos * 0.5 + 0.5;
+  gl_Position = vec4(aPos, 0.0, 1.0);
+}`
+
+  const FS = `
+precision mediump float;
+uniform sampler2D uTex;
+uniform vec2  uRes;
+uniform float uTime;
+uniform float uAmp;
+varying vec2 vUv;
+
+float hash(vec2 p) {
+  return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
+}
+float vnoise(vec2 p) {
+  vec2 i = floor(p), f = fract(p);
+  vec2 u = f * f * (3.0 - 2.0 * f);
+  return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), u.x),
+             mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), u.x), u.y);
+}
+
+/* 三层波，够碎但不贵 */
+float surface(vec2 p, float t) {
+  float h  = vnoise(p * 2.6 + vec2(t * 0.13,  t * 0.09));
+  h += vnoise(p * 6.4 - vec2(t * 0.10,  t * 0.16)) * 0.5;
+  h += vnoise(p * 16.0 + vec2(t * 0.34, -t * 0.26)) * 0.26;
+  return h / 1.76;
+}
+
+void main() {
+  float aspect = uRes.x / max(uRes.y, 1.0);
+  vec2 p = vec2(vUv.x * aspect, vUv.y);
+
+  float h  = surface(p, uTime);
+  float e  = 0.004;
+  float hx = surface(p + vec2(e, 0.0), uTime) - h;
+  float hy = surface(p + vec2(0.0, e), uTime) - h;
+
+  /* 折射 */
+  vec3 col = texture2D(uTex, vUv + vec2(hx, hy) * uAmp).rgb;
+
+  /* 法线 + 方向光 → 细碎高光（波光粼粼的关键：指数高、光点小） */
+  vec3 N = normalize(vec3(-hx * 46.0, -hy * 46.0, 1.0));
+  vec3 L = normalize(vec3(0.32, 0.58, 0.75));
+  float ndl = max(dot(N, L), 0.0);
+  float spec = pow(ndl, 130.0);
+
+  /* 天光反射：水面自己发光，不靠底下暗视频 */
+  vec3 V = vec3(0.0, 0.0, 1.0);
+  float fres = pow(1.0 - max(dot(N, V), 0.0), 3.0);
+  vec3 skyLow  = vec3(0.30, 0.52, 0.62);
+  vec3 skyHigh = vec3(0.72, 0.90, 1.0);
+  vec3 skyCol = mix(skyLow, skyHigh, clamp(h * 1.3, 0.0, 1.0));
+  col = mix(col, skyCol, fres * 0.62);
+
+  /* 让高光随波闪动 */
+  float twinkle = 0.6 + 0.4 * vnoise(p * 42.0 + vec2(uTime * 0.9, -uTime * 0.7));
+  col += vec3(1.0, 0.98, 0.90) * spec * 4.2 * twinkle;
+  col *= 1.18;
+
+  /* 次一级的柔光，避免只有点没有面 */
+  float soft = pow(ndl, 22.0);
+  col += vec3(0.62, 0.88, 1.0) * soft * 0.55;
+
+  /* 波谷压深 */
+  float trough = smoothstep(0.44, 0.04, h);
+  col = mix(col, col * vec3(0.62, 0.86, 0.94), trough * 0.3);
+
+  gl_FragColor = vec4(col, 1.0);
+}`
+
+  function compile(type, src) {
+    const sh = gl.createShader(type)
+    gl.shaderSource(sh, src)
+    gl.compileShader(sh)
+    if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) {
+      console.warn('shader:', gl.getShaderInfoLog(sh))
+      return null
+    }
+    return sh
+  }
+
+  const vs = compile(gl.VERTEX_SHADER, VS)
+  const fs = compile(gl.FRAGMENT_SHADER, FS)
+  if (!vs || !fs) return { start() {}, stop() {} }
+
+  const prog = gl.createProgram()
+  gl.attachShader(prog, vs); gl.attachShader(prog, fs); gl.linkProgram(prog)
+  if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) return { start() {}, stop() {} }
+  gl.useProgram(prog)
+
+  const buf = gl.createBuffer()
+  gl.bindBuffer(gl.ARRAY_BUFFER, buf)
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW)
+  const aPos = gl.getAttribLocation(prog, 'aPos')
+  gl.enableVertexAttribArray(aPos)
+  gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0)
+
+  const uTex = gl.getUniformLocation(prog, 'uTex')
+  const uRes = gl.getUniformLocation(prog, 'uRes')
+  const uTime = gl.getUniformLocation(prog, 'uTime')
+  const uAmp = gl.getUniformLocation(prog, 'uAmp')
+
+  const tex = gl.createTexture()
+  gl.bindTexture(gl.TEXTURE_2D, tex)
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+
+  let raf = null, running = false, t0 = performance.now()
+
+  function resize() {
+    // 水面本身就是糊的，跑半分辨率完全看不出来，帧率翻倍
+    const scale = 0.5
+    const w = Math.round(canvas.clientWidth * scale)
+    const h = Math.round(canvas.clientHeight * scale)
+    if (canvas.width !== w || canvas.height !== h) {
+      canvas.width = w; canvas.height = h
+      gl.viewport(0, 0, w, h)
+    }
+  }
+
+  let lastDraw = 0
+  function frame(now) {
+    if (!running) return
+    raf = requestAnimationFrame(frame)
+    if (now - lastDraw < 33) return      // 限到 30fps
+    lastDraw = now
+
+    const vids = document.querySelectorAll('.reel video')
+    let v = null
+    for (const x of vids) if (x.classList.contains('on') && x.readyState >= 2) { v = x; break }
+    if (!v) for (const x of vids) if (x.readyState >= 2) { v = x; break }
+
+    if (v) {
+      resize()
+      gl.bindTexture(gl.TEXTURE_2D, tex)
+      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true)
+      try { gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, gl.RGB, gl.UNSIGNED_BYTE, v) } catch (e) {}
+      gl.uniform1i(uTex, 0)
+      gl.uniform2f(uRes, canvas.width, canvas.height)
+      gl.uniform1f(uTime, (performance.now() - t0) / 1000)
+      gl.uniform1f(uAmp, 0.078)
+      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4)
+    }
+  }
+
+  return {
+    start() {
+      if (running) return
+      running = true
+      canvas.classList.add('on')
+      resize()
+      frame()
+    },
+    stop() {
+      running = false
+      if (raf) cancelAnimationFrame(raf)
+    }
+  }
+})();
+
+/* 水面涟漪：点击大扩散，划过小波纹 */
+(function () {
+  const MINI_GAP = 200
+  let last = 0
+
+  let live = 0
+  function spawn(x, y, size, mini) {
+    if (live > 6) return
+    live++
+    const el = document.createElement('span')
+    el.className = 'ripple' + (mini ? ' mini' : '')
+    el.style.left = x + 'px'
+    el.style.top = y + 'px'
+    el.style.width = size + 'px'
+    el.style.height = size + 'px'
+    document.body.appendChild(el)
+    setTimeout(() => { el.remove(); live-- }, mini ? 950 : 1400)
+  }
+
+  window.addEventListener('pointerdown', (e) => spawn(e.clientX, e.clientY, 260, false), { passive: true })
+  window.addEventListener('pointermove', (e) => {
+    if (e.pointerType === 'touch') return
+    const now = performance.now()
+    if (now - last < MINI_GAP) return
+    last = now
+    spawn(e.clientX, e.clientY, 56 + Math.random() * 26, true)
+  }, { passive: true })
+})();
+
+(function () {
+  const els = document.querySelectorAll('.rv')
+  if (!('IntersectionObserver' in window)) { els.forEach(e => e.classList.add('in')); return }
+  const io = new IntersectionObserver((es) => {
+    es.forEach((e, i) => {
+      if (e.isIntersecting) { setTimeout(() => e.target.classList.add('in'), i * 60); io.unobserve(e.target) }
+    })
+  }, { threshold: .16, rootMargin: '0px 0px -6% 0px' })
+  els.forEach(e => io.observe(e))
+})();
+
+/* 卡片光晕跟随 */
+document.querySelectorAll('.tool').forEach(el => {
+  el.addEventListener('pointermove', (e) => {
+    const r = el.getBoundingClientRect()
+    el.style.setProperty('--mx', ((e.clientX - r.left) / r.width * 100) + '%')
+    el.style.setProperty('--my', ((e.clientY - r.top) / r.height * 100) + '%')
+  })
+})
+</script>
+</body>
+</html>
